@@ -18,9 +18,9 @@ PLATFORM := fpga/ariane
 FW_FDT_PATH ?=
 sbi-mk = PLATFORM=$(PLATFORM) CROSS_COMPILE=$(TOOLCHAIN_PREFIX) $(if $(FW_FDT_PATH),FW_FDT_PATH=$(FW_FDT_PATH),)
 ifeq ($(XLEN), 32)
-sbi-mk += PLATFORM_RISCV_ISA=rv32ima PLATFORM_RISCV_XLEN=32
+sbi-mk += PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei PLATFORM_RISCV_XLEN=32
 else
-sbi-mk += PLATFORM_RISCV_ISA=rv64imafdc PLATFORM_RISCV_XLEN=64
+sbi-mk += PLATFORM_RISCV_ISA=rv64imafdc_zicsr_zifencei PLATFORM_RISCV_XLEN=64
 endif
 
 # U-Boot options
@@ -90,7 +90,7 @@ rootfs/tetris: $(CC)
 
 $(RISCV)/vmlinux: $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig) $(CC) rootfs/cachetest.elf rootfs/tetris
 	mkdir -p $(RISCV)
-	make -C buildroot $(buildroot-mk)
+	CFLAGS="-Wno-implicit-int -Wnoimplicit-function-declaration" make -C buildroot $(buildroot-mk)
 	cp buildroot/output/images/vmlinux $@
 
 $(RISCV)/Image: $(RISCV)/vmlinux
@@ -125,8 +125,8 @@ $(RISCV)/spike_fw_payload.elf: $(RISCV)/Image
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/spike_fw_payload.bin
 
 # need to run flash-sdcard with sudo -E, be careful to set the correct SDDEVICE
-# Number of sector required for FWPAYLOAD partition (each sector is 512B)
 FWPAYLOAD_SECTORSTART := 2048
+# Number of sector required for FWPAYLOAD partition (each sector is 512B)
 FWPAYLOAD_SECTORSIZE = $(shell ls -l --block-size=512 $(RISCV)/fw_payload.bin | cut -d " " -f5 )
 FWPAYLOAD_SECTOREND = $(shell echo $(FWPAYLOAD_SECTORSTART)+$(FWPAYLOAD_SECTORSIZE) | bc)
 SDDEVICE_PART1 = $(shell lsblk $(SDDEVICE) -no PATH | head -2 | tail -1)
