@@ -44,13 +44,15 @@ endif
 
 # default make flags
 isa-sim-mk              = -j$(NR_CORES)
-tests-mk         		= -j$(NR_CORES)
-buildroot-mk       		= -j$(NR_CORES)
+tests-mk                = -j$(NR_CORES)
+buildroot-mk            = -j$(NR_CORES)
 
 # linux image
 buildroot_defconfig = configs/buildroot$(XLEN)_defconfig
 linux_defconfig = configs/linux$(XLEN)_defconfig
 busybox_defconfig = configs/busybox$(XLEN).config
+
+images: $(CC) $(RISCV)/fw_payload.bin $(RISCV)/uImage
 
 install-dir:
 	mkdir -p $(RISCV)
@@ -76,8 +78,6 @@ $(CC): $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig)
 	make -C buildroot defconfig BR2_DEFCONFIG=../$(buildroot_defconfig)
 	make -C buildroot host-gcc-final $(buildroot-mk)
 
-all: $(CC) isa-sim
-
 # benchmark for the cache subsystem
 rootfs/cachetest.elf: $(CC)
 	cd ./cachetest/ && $(CC) cachetest.c -o cachetest.elf
@@ -88,16 +88,10 @@ rootfs/tetris: $(CC)
 	cd ./vitetris/ && make clean && ./configure CC=$(CC) && make
 	cp ./vitetris/tetris $@
 
-$(RISCV)/vmlinux: $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig) $(CC) rootfs/cachetest.elf rootfs/tetris
+$(RISCV)/Image.gz: $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig) $(CC) # rootfs/cachetest.elf rootfs/tetris
 	mkdir -p $(RISCV)
 	CFLAGS="-Wno-implicit-int -Wnoimplicit-function-declaration" make -C buildroot $(buildroot-mk)
-	cp buildroot/output/images/vmlinux $@
-
-$(RISCV)/Image: $(RISCV)/vmlinux
-	$(OBJCOPY) -O binary -R .note -R .comment -S $< $@
-
-$(RISCV)/Image.gz: $(RISCV)/Image
-	gzip -9 -k --force $< > $@
+	cp buildroot/output/images/$(@F) $@
 
 # U-Boot-compatible Linux image
 $(RISCV)/uImage: $(RISCV)/Image.gz $(MKIMAGE)
@@ -108,7 +102,7 @@ $(RISCV)/u-boot.bin: u-boot/u-boot.bin
 	cp $< $@
 
 $(MKIMAGE) u-boot/u-boot.bin: $(CC)
-	make -C u-boot openhwgroup_cv$(XLEN)a6_genesysII_defconfig
+	make -C u-boot openhwgroup_cv$(XLEN)a6_zcu104_defconfig
 	make -C u-boot CROSS_COMPILE=$(TOOLCHAIN_PREFIX)
 
 # OpenSBI with u-boot as payload
@@ -119,7 +113,7 @@ $(RISCV)/fw_payload.bin: $(RISCV)/u-boot.bin
 
 # OpenSBI for Spike with Linux as payload
 $(RISCV)/spike_fw_payload.elf: PLATFORM=generic
-$(RISCV)/spike_fw_payload.elf: $(RISCV)/Image
+$(RISCV)/spike_fw_payload.elf: $(RISCV)/Image.gz
 	make -C opensbi FW_PAYLOAD_PATH=$< $(sbi-mk)
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.elf $(RISCV)/spike_fw_payload.elf
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/spike_fw_payload.bin
@@ -131,15 +125,25 @@ FWPAYLOAD_SECTORSIZE = $(shell ls -l --block-size=512 $(RISCV)/fw_payload.bin | 
 FWPAYLOAD_SECTOREND = $(shell echo $(FWPAYLOAD_SECTORSTART)+$(FWPAYLOAD_SECTORSIZE) | bc)
 SDDEVICE_PART1 = $(shell lsblk $(SDDEVICE) -no PATH | head -2 | tail -1)
 SDDEVICE_PART2 = $(shell lsblk $(SDDEVICE) -no PATH | head -3 | tail -1)
-# Always flash uImage at 512M, easier for u-boot boot command
-UIMAGE_SECTORSTART := 512M
+SDDEVICE_PART3 = $(shell lsblk $(SDDEVICE) -no PATH | head -4 | tail -1)
+# Always flash uImage at 512M (1M sectors), easier for u-boot bootm command
+UIMAGE_SECTORSTART := 1048576
+UIMAGE_SECTORSIZE = $(shell ls -l --block-size=512 $(RISCV)/uImage | cut -d " " -f5 )
+UIMAGE_SECTOREND = $(shell echo $(UIMAGE_SECTORSTART)+$(UIMAGE_SECTORSIZE) | bc)
+
+SCRATCH_SECTORSTART := $(UIMAGE_SECTOREND)
 flash-sdcard: format-sd
 	dd if=$(RISCV)/fw_payload.bin of=$(SDDEVICE_PART1) status=progress oflag=sync bs=1M
 	dd if=$(RISCV)/uImage         of=$(SDDEVICE_PART2) status=progress oflag=sync bs=1M
+	mkfs.ext4 $(SDDEVICE_PART3) -F
+	sync
 
 format-sd: $(SDDEVICE)
 	@test -n "$(SDDEVICE)" || (echo 'SDDEVICE must be set, Ex: make flash-sdcard SDDEVICE=/dev/sdc' && exit 1)
-	sgdisk --clear -g --new=1:$(FWPAYLOAD_SECTORSTART):$(FWPAYLOAD_SECTOREND) --new=2:$(UIMAGE_SECTORSTART):0 --typecode=1:3000 --typecode=2:8300 $(SDDEVICE)
+	sgdisk --clear -g --new=1:$(FWPAYLOAD_SECTORSTART):$(FWPAYLOAD_SECTOREND) \
+		--new=2:$(UIMAGE_SECTORSTART):$(UIMAGE_SECTOREND)                     \
+		--new=3:$(UIMAGE_SECTOREND):0                                         \
+		--typecode=1:3000 --typecode=2:8300 --typecode=3:8300 $(SDDEVICE)
 
 # specific recipes
 gcc: $(CC)
@@ -147,8 +151,6 @@ vmlinux: $(RISCV)/vmlinux
 fw_payload.bin: $(RISCV)/fw_payload.bin
 uImage: $(RISCV)/uImage
 spike_payload: $(RISCV)/spike_fw_payload.elf
-
-images: $(CC) $(RISCV)/fw_payload.bin $(RISCV)/uImage
 
 clean:
 	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/tetris rootfs/cachetest.elf
