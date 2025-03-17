@@ -20,6 +20,7 @@ BR2_KERNEL_HEADERS_AS_KERNEL=y
 BR2_PACKAGE_LINUX_HEADERS=y
 BR2_PACKAGE_GLIBC=y
 BR2_ROOTFS_OVERLAY="../rootfs"
+BR2_GNU_MIRROR="https://mirror.ibcp.fr/pub/gnu/"
 BR2_LINUX_KERNEL=y
 BR2_LINUX_KERNEL_CUSTOM_GIT=y
 BR2_LINUX_KERNEL_CUSTOM_REPO_URL="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
