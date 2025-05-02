@@ -6,6 +6,9 @@ RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
 
+# FPGA board, `zcu104` or `pynq_z2` are supported
+BOARD    ?= pynq_z2
+
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
 CC          := $(TOOLCHAIN_PREFIX)gcc
 OBJCOPY     := $(TOOLCHAIN_PREFIX)objcopy
@@ -102,7 +105,7 @@ $(RISCV)/u-boot.bin: u-boot/u-boot.bin
 	cp $< $@
 
 $(MKIMAGE) u-boot/u-boot.bin: $(CC)
-	make -C u-boot openhwgroup_cv$(XLEN)a6_zcu104_defconfig
+	make -C u-boot openhwgroup_cv$(XLEN)a6_$(BOARD)_defconfig
 	make -C u-boot CROSS_COMPILE=$(TOOLCHAIN_PREFIX)
 
 # OpenSBI with u-boot as payload
@@ -135,7 +138,7 @@ SCRATCH_SECTORSTART := $(UIMAGE_SECTOREND)
 flash-sdcard: format-sd
 	dd if=$(RISCV)/fw_payload.bin of=$(SDDEVICE_PART1) status=progress oflag=sync bs=1M
 	dd if=$(RISCV)/uImage         of=$(SDDEVICE_PART2) status=progress oflag=sync bs=1M
-	mkfs.ext4 $(SDDEVICE_PART3) -F
+	mkfs.vfat -F 32 $(SDDEVICE_PART3)
 	sync
 
 format-sd: $(SDDEVICE)
