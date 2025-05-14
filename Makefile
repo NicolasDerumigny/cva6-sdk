@@ -6,7 +6,7 @@ RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
 
-# FPGA board, `zcu104` or `pynq_z2` are supported
+# FPGA board, `zcu104`, `zcu104_100MHz` or `pynq_z2` are supported
 BOARD    ?= pynq_z2
 
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
