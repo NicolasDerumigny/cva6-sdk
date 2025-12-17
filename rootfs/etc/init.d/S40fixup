@@ -6,7 +6,8 @@
 umask 077
 
 start() {
-	ifconfig eth0 hw ether 00:18:3E:02:E3:7F
+	ip link set dev eth0 address 00:18:3E:02:E3:7F
+	ip link set dev lo up
 	chown root:root /etc/ssh/ssh_host_*
 	chmod 600 /etc/ssh/ssh_host_*key
 }
