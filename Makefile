@@ -6,8 +6,8 @@ RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
 
-# FPGA board, `zcu104`, `zcu104_100MHz` or `pynq_z2` are supported
-BOARD    ?= pynq_z2
+# FPGA board: `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore` or `pynq_z2` are supported
+BOARD    ?= zcu104_100MHz_dualcore
 
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
 CC          := $(TOOLCHAIN_PREFIX)gcc
@@ -24,6 +24,15 @@ ifeq ($(XLEN), 32)
 sbi-mk += PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei PLATFORM_RISCV_XLEN=32
 else
 sbi-mk += PLATFORM_RISCV_ISA=rv64imafdc_zicsr_zifencei PLATFORM_RISCV_XLEN=64
+endif
+ifneq ($(filter zcu104_100MHz%,$(BOARD)),)
+ARIANE_UART_FREQ=100000000
+endif
+ifeq ($(BOARD), pynq_z2)
+ARIANE_UART_FREQ=25000000
+endif
+ifeq ($(BOARD), zcu104_100MHz_dualcore)
+ARIANE_DUALCORE=y
 endif
 
 # U-Boot options
@@ -110,7 +119,7 @@ $(MKIMAGE) u-boot/u-boot.bin: $(CC)
 
 # OpenSBI with u-boot as payload
 $(RISCV)/fw_payload.bin: $(RISCV)/u-boot.bin
-	make -C opensbi FW_PAYLOAD_PATH=$< $(sbi-mk)
+	make -C opensbi FW_PAYLOAD_PATH=$< ARIANE_UART_FREQ=$(ARIANE_UART_FREQ) ARIANE_DUALCORE=$(ARIANE_DUALCORE) $(sbi-mk)
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.elf $(RISCV)/fw_payload.elf
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/fw_payload.bin
 
