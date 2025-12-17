@@ -6,7 +6,7 @@ RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
 
-# FPGA board: `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore` or `pynq_z2` are supported
+# FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore` are supported
 BOARD    ?= zcu104_100MHz_dualcore
 
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
@@ -18,6 +18,7 @@ NR_CORES := $(shell nproc)
 
 # SBI options
 PLATFORM := fpga/ariane
+# PLATFORM := fpga/cva6-altera
 FW_FDT_PATH ?=
 sbi-mk = PLATFORM=$(PLATFORM) CROSS_COMPILE=$(TOOLCHAIN_PREFIX) $(if $(FW_FDT_PATH),FW_FDT_PATH=$(FW_FDT_PATH),)
 ifeq ($(XLEN), 32)
@@ -35,7 +36,6 @@ ifeq ($(BOARD), zcu104_100MHz_dualcore)
 ARIANE_DUALCORE=y
 endif
 
-# U-Boot options
 ifeq ($(XLEN), 32)
 UIMAGE_LOAD_ADDRESS := 0x80400000
 UIMAGE_ENTRY_POINT  := 0x80400000
@@ -87,6 +87,10 @@ tests: install-dir $(CC)
 	cd $(ROOT)
 
 $(CC): $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig)
+ifeq ($(PLATFORM),fpga/cva6-altera) 
+	cp agilex_patch/0008* linux_patch/
+	patch --forward -p1 -d opensbi < agilex_patch/opensbi.patch || true
+endif
 	make -C buildroot defconfig BR2_DEFCONFIG=../$(buildroot_defconfig)
 	make -C buildroot host-gcc-final $(buildroot-mk)
 
@@ -145,17 +149,32 @@ UIMAGE_SECTOREND = $(shell echo $(UIMAGE_SECTORSTART)+$(UIMAGE_SECTORSIZE) | bc)
 
 SCRATCH_SECTORSTART := $(UIMAGE_SECTOREND)
 flash-sdcard: format-sd
+ifeq ($(PLATFORM),fpga/ariane)
 	dd if=$(RISCV)/fw_payload.bin of=$(SDDEVICE_PART1) status=progress oflag=sync bs=1M
 	dd if=$(RISCV)/uImage         of=$(SDDEVICE_PART2) status=progress oflag=sync bs=1M
 	mkfs.vfat -F 32 $(SDDEVICE_PART3)
 	sync
+else ifeq ($(PLATFORM),fpga/cva6-altera)
+	cp altera-sd-card/u-boot.itb /media/*/*/
+	dd if=$(RISCV)/fw_payload.bin of=$(SDDEVICE_PART2) status=progress oflag=sync bs=1M
+	dd if=$(RISCV)/uImage         of=$(SDDEVICE_PART3) status=progress oflag=sync bs=1M
+else
+	@echo 'Unknown platform' && exit 1
+endif
 
 format-sd: $(SDDEVICE)
 	@test -n "$(SDDEVICE)" || (echo 'SDDEVICE must be set, Ex: make flash-sdcard SDDEVICE=/dev/sdc' && exit 1)
+ifeq ($(PLATFORM),fpga/ariane)
 	sgdisk --clear -g --new=1:$(FWPAYLOAD_SECTORSTART):$(FWPAYLOAD_SECTOREND) \
 		--new=2:$(UIMAGE_SECTORSTART):$(UIMAGE_SECTOREND)                     \
 		--new=3:$(UIMAGE_SECTOREND):0                                         \
 		--typecode=1:3000 --typecode=2:8300 --typecode=3:8300 $(SDDEVICE)
+else ifeq ($(PLATFORM),fpga/cva6-altera)
+	@echo "WARNING: This will erase all data on $(SDDEVICE)"
+	@sfdisk $(SDDEVICE) --force < altera-sd-card/partition.txt
+else
+	@echo 'Unknown platform' && exit 1
+endif
 
 # specific recipes
 gcc: $(CC)
@@ -171,6 +190,9 @@ clean:
 	make -C opensbi distclean
 
 clean-all: clean
+ifeq ($(PLATFORM),fpga/cva6-altera) 
+	rm -f linux_patch/0008*
+endif
 	rm -rf $(RISCV) riscv-isa-sim/build riscv-tests/build
 	make -C buildroot clean
 
