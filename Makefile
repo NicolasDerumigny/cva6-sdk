@@ -17,7 +17,7 @@ MKIMAGE     := u-boot/tools/mkimage
 NR_CORES := $(shell nproc)
 
 # SBI options
-PLATFORM := fpga/ariane
+PLATFORM := generic
 # PLATFORM := fpga/cva6-altera
 FW_FDT_PATH ?=
 sbi-mk = PLATFORM=$(PLATFORM) CROSS_COMPILE=$(TOOLCHAIN_PREFIX) $(if $(FW_FDT_PATH),FW_FDT_PATH=$(FW_FDT_PATH),)
@@ -26,12 +26,7 @@ sbi-mk += PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei PLATFORM_RISCV_XLEN=32
 else
 sbi-mk += PLATFORM_RISCV_ISA=rv64imafdc_zicsr_zifencei PLATFORM_RISCV_XLEN=64
 endif
-ifneq ($(filter zcu104_100MHz%,$(BOARD)),)
-ARIANE_UART_FREQ=100000000
-endif
-ifeq ($(BOARD), pynq_z2)
-ARIANE_UART_FREQ=25000000
-endif
+
 ifeq ($(BOARD), zcu104_100MHz_dualcore)
 ARIANE_DUALCORE=y
 endif
@@ -123,7 +118,7 @@ $(MKIMAGE) u-boot/u-boot.bin: $(CC)
 
 # OpenSBI with u-boot as payload
 $(RISCV)/fw_payload.bin: $(RISCV)/u-boot.bin
-	make -C opensbi FW_PAYLOAD_PATH=$< ARIANE_UART_FREQ=$(ARIANE_UART_FREQ) ARIANE_DUALCORE=$(ARIANE_DUALCORE) $(sbi-mk)
+	make -C opensbi FW_PAYLOAD_PATH=$< ARIANE_DUALCORE=$(ARIANE_DUALCORE) $(sbi-mk)
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.elf $(RISCV)/fw_payload.elf
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/fw_payload.bin
 
@@ -149,7 +144,7 @@ UIMAGE_SECTOREND = $(shell echo $(UIMAGE_SECTORSTART)+$(UIMAGE_SECTORSIZE) | bc)
 
 SCRATCH_SECTORSTART := $(UIMAGE_SECTOREND)
 flash-sdcard: format-sd
-ifeq ($(PLATFORM),fpga/ariane)
+ifeq ($(PLATFORM),generic)
 	dd if=$(RISCV)/fw_payload.bin of=$(SDDEVICE_PART1) status=progress oflag=sync bs=1M
 	dd if=$(RISCV)/uImage         of=$(SDDEVICE_PART2) status=progress oflag=sync bs=1M
 	mkfs.vfat -F 32 $(SDDEVICE_PART3)
@@ -164,7 +159,7 @@ endif
 
 format-sd: $(SDDEVICE)
 	@test -n "$(SDDEVICE)" || (echo 'SDDEVICE must be set, Ex: make flash-sdcard SDDEVICE=/dev/sdc' && exit 1)
-ifeq ($(PLATFORM),fpga/ariane)
+ifeq ($(PLATFORM),generic)
 	sgdisk --clear -g --new=1:$(FWPAYLOAD_SECTORSTART):$(FWPAYLOAD_SECTOREND) \
 		--new=2:$(UIMAGE_SECTORSTART):$(UIMAGE_SECTOREND)                     \
 		--new=3:$(UIMAGE_SECTOREND):0                                         \
