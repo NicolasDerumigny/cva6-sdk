@@ -129,6 +129,8 @@ $(RISCV)/spike_fw_payload.elf: $(RISCV)/Image.gz
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.elf $(RISCV)/spike_fw_payload.elf
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/spike_fw_payload.bin
 
+# Avoid error on initial build due to one of the script failing
+ifneq ($(SDDEVICE),)
 # need to run flash-sdcard with sudo -E, be careful to set the correct SDDEVICE
 FWPAYLOAD_SECTORSTART := 2048
 # Number of sector required for FWPAYLOAD partition (each sector is 512B)
@@ -141,6 +143,7 @@ SDDEVICE_PART3 = $(shell lsblk $(SDDEVICE) -no PATH | head -4 | tail -1)
 UIMAGE_SECTORSTART := 1048576
 UIMAGE_SECTORSIZE = $(shell ls -l --block-size=512 $(RISCV)/uImage | cut -d " " -f5 )
 UIMAGE_SECTOREND = $(shell echo $(UIMAGE_SECTORSTART)+$(UIMAGE_SECTORSIZE) | bc)
+endif
 
 SCRATCH_SECTORSTART := $(UIMAGE_SECTOREND)
 flash-sdcard: format-sd
