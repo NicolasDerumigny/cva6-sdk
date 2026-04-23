@@ -1,0 +1,25 @@
+From 5a750b25dbfbaf18a0a7a518b7aabb01df4a5819 Mon Sep 17 00:00:00 2001
+From: Nicolas Derumigny <nderumigny@gmail.com>
+Date: Thu, 23 Apr 2026 17:51:32 +0200
+Subject: [PATCH 2/3] fix(riscv/cache): fix CVA6 cacheline size
+
+---
+ arch/riscv/include/asm/cache.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/riscv/include/asm/cache.h b/arch/riscv/include/asm/cache.h
+index eb42b739d..1291029ca 100644
+--- a/arch/riscv/include/asm/cache.h
++++ b/arch/riscv/include/asm/cache.h
+@@ -7,7 +7,7 @@
+ #ifndef _ASM_RISCV_CACHE_H
+ #define _ASM_RISCV_CACHE_H
+ 
+-#define L1_CACHE_SHIFT		6
++#define L1_CACHE_SHIFT		7
+ 
+ #define L1_CACHE_BYTES		(1 << L1_CACHE_SHIFT)
+ 
+-- 
+2.53.0
+
