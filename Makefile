@@ -6,8 +6,8 @@ RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
 
-# FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore` are supported
-BOARD    ?= zcu104_100MHz_dualcore
+# FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore`, `zcu104_75MHz_dualcore` are supported
+BOARD    ?= zcu104_75MHz_dualcore
 
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
 CC          := $(TOOLCHAIN_PREFIX)gcc
@@ -27,7 +27,7 @@ else
 sbi-mk += PLATFORM_RISCV_ISA=rv64imafdc_zicsr_zifencei PLATFORM_RISCV_XLEN=64
 endif
 
-ifeq ($(BOARD), zcu104_100MHz_dualcore)
+ifeq ($(findstring dualcore,$(BOARD)),dualcore)
 ARIANE_DUALCORE=y
 endif
 
