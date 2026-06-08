@@ -6,7 +6,8 @@ RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
 
-# FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore`, `zcu104_75MHz_dualcore` are supported
+# FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_100MHz`, `zcu104_100MHz_dualcore`, `zcu104_75MHz_dualcore`,
+# `zcu104_75MHz_dualcore_noethernet` are supported
 BOARD    ?= zcu104_75MHz_dualcore
 
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
