@@ -151,7 +151,7 @@ flash-sdcard: format-sd
 ifeq ($(PLATFORM),generic)
 	dd if=$(RISCV)/fw_payload.bin of=$(SDDEVICE_PART1) status=progress oflag=sync bs=1M
 	dd if=$(RISCV)/uImage         of=$(SDDEVICE_PART2) status=progress oflag=sync bs=1M
-	mkfs.vfat -F 32 $(SDDEVICE_PART3)
+	mkfs.ext2 -F $(SDDEVICE_PART3)
 	sync
 else ifeq ($(PLATFORM),fpga/cva6-altera)
 	cp altera-sd-card/u-boot.itb /media/*/*/

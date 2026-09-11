@@ -1,0 +1,222 @@
+#!/bin/sh
+# ariane-chroot - arch-chroot equivalent in POSIX sh, for native RISC-V
+#
+# Mounts the API filesystems (/proc, /sys, /dev, /dev/pts, /dev/shm, /run),
+# chroots in, and unmounts everything on exit. Intended to run on the
+# Ariane/CVA6 softcore itself, against a native riscv64 rootfs.
+#
+# Usage: ariane-chroot [options] <rootfs> [command [args...]]
+#        Default command is /bin/sh -l
+#
+# Options:
+#   -b SRC[:DST]  extra bind mount; DST is relative to rootfs, defaults to SRC
+#   -e VAR=VAL    set an environment variable inside the chroot (repeatable)
+#   -i        start from an empty environment (env -i) for reproducible runs
+#   -r        mount the API filesystems read-only where possible
+#   -v        verbose
+#   -h        show this help
+
+set -eu
+
+PROGNAME=${0##*/}
+
+die() { printf '%s: error: %s\n' "$PROGNAME" "$*" >&2; exit 1; }
+warn() { printf '%s: warning: %s\n' "$PROGNAME" "$*" >&2; }
+info() { [ -n "${VERBOSE:-}" ] && printf '%s: %s\n' "$PROGNAME" "$*" >&2 || :; }
+
+usage() {
+	sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
+	exit "${1:-0}"
+}
+
+# --- track what we mounted, so cleanup only touches our own mounts ----------
+
+MOUNTED=''
+
+register_mount() {
+	# Prepend, so teardown happens in reverse order of setup.
+	MOUNTED="$1
+$MOUNTED"
+}
+
+cleanup() {
+	status=$?
+	trap - EXIT HUP INT TERM
+
+	# Give any stragglers a moment; benchmark processes sometimes linger.
+	[ -n "$MOUNTED" ] && sync
+
+	printf '%s\n' "$MOUNTED" | while IFS= read -r mp; do
+		[ -n "$mp" ] || continue
+		if mountpoint -q "$mp" 2>/dev/null || grep -qF " $mp " /proc/mounts 2>/dev/null; then
+			umount "$mp" 2>/dev/null \
+				|| umount -l "$mp" 2>/dev/null \
+				|| warn "could not unmount $mp"
+		fi
+	done
+
+	exit "$status"
+}
+
+# --- mount helpers ---------------------------------------------------------
+
+do_mount() {
+	# do_mount <type|bind> <source> <target> [options]
+	_type=$1 _src=$2 _tgt=$3 _opts=${4:-}
+
+	[ -e "$_tgt" ] || mkdir -p "$_tgt"
+
+	if grep -qF " $_tgt " /proc/mounts 2>/dev/null; then
+		info "already mounted: $_tgt"
+		return 0
+	fi
+
+	if [ "$_type" = bind ]; then
+		mount --bind "$_src" "$_tgt" || die "bind mount failed: $_src -> $_tgt"
+		mount --make-rslave "$_tgt" 2>/dev/null || :
+	else
+		if [ -n "$_opts" ]; then
+			mount -t "$_type" -o "$_opts" "$_src" "$_tgt" \
+				|| die "mount failed: $_type on $_tgt"
+		else
+			mount -t "$_type" "$_src" "$_tgt" \
+				|| die "mount failed: $_type on $_tgt"
+		fi
+	fi
+
+	register_mount "$_tgt"
+	info "mounted $_tgt"
+}
+
+setup_api_filesystems() {
+	_root=$1
+
+	# /proc is not optional: musl expands $ORIGIN in RPATH by reading
+	# /proc/self/exe. Without it, binaries like OpenJDK's java stub fail
+	# to locate their own libraries (libjli.so and friends).
+	do_mount proc proc "$_root/proc" "${RO:+ro,}nosuid,noexec,nodev"
+
+	do_mount sysfs sys "$_root/sys" "${RO:+ro,}nosuid,noexec,nodev"
+
+	# devtmpfs rather than a bind of /dev: gives the chroot its own device
+	# nodes without sharing the host's /dev mount tree.
+	if ! do_mount devtmpfs dev "$_root/dev" "mode=0755,nosuid" 2>/dev/null; then
+		info "devtmpfs unavailable, falling back to bind mount"
+		do_mount bind /dev "$_root/dev"
+	fi
+
+	do_mount devpts devpts "$_root/dev/pts" "mode=0620,gid=5,nosuid,noexec"
+	do_mount tmpfs shm "$_root/dev/shm" "mode=1777,nosuid,nodev"
+	do_mount tmpfs run "$_root/run" "mode=0755,nosuid,nodev"
+}
+
+# --- resolv.conf -----------------------------------------------------------
+
+setup_resolv() {
+	_root=$1
+
+	[ -e /etc/resolv.conf ] || return 0
+	[ -d "$_root/etc" ] || return 0
+
+	# Bind rather than copy, so we leave no trace in the rootfs image.
+	if [ ! -e "$_root/etc/resolv.conf" ]; then
+		: > "$_root/etc/resolv.conf" 2>/dev/null || return 0
+		RESOLV_CREATED=$_root/etc/resolv.conf
+	fi
+
+	do_mount bind /etc/resolv.conf "$_root/etc/resolv.conf" 2>/dev/null || :
+}
+
+# --- argument parsing ------------------------------------------------------
+
+EXTRA_BINDS=''
+ENV_VARS=''
+CLEAN_ENV=''
+RO=''
+
+while getopts 'b:e:irvh' opt; do
+	case $opt in
+		b) EXTRA_BINDS="$EXTRA_BINDS $OPTARG" ;;
+		e) ENV_VARS="$ENV_VARS $OPTARG" ;;
+		i) CLEAN_ENV=1 ;;
+		r) RO=1 ;;
+		v) VERBOSE=1 ;;
+		h) usage 0 ;;
+		*) usage 1 ;;
+	esac
+done
+shift $((OPTIND - 1))
+
+[ $# -ge 1 ] || usage 1
+
+ROOTFS=$1
+shift
+
+# --- sanity checks ---------------------------------------------------------
+
+[ "$(id -u)" -eq 0 ] || die "must be run as root"
+
+[ -d "$ROOTFS" ] || die "not a directory: $ROOTFS"
+
+# Resolve to an absolute path: relative paths break the mount bookkeeping.
+ROOTFS=$(cd "$ROOTFS" && pwd) || die "cannot resolve $ROOTFS"
+
+[ "$ROOTFS" != / ] || die "refusing to operate on /"
+
+command -v chroot >/dev/null 2>&1 || die "chroot not found"
+
+if [ ! -x "$ROOTFS/bin/sh" ] && [ ! -x "$ROOTFS/usr/bin/sh" ]; then
+	warn "no /bin/sh found in rootfs; is this a complete root filesystem?"
+fi
+
+# No emulation here: the rootfs must be built for the core we are running on.
+# A mismatch shows up as "Exec format error", which is easy to misread.
+if command -v file >/dev/null 2>&1 && [ -e "$ROOTFS/bin/sh" ]; then
+	# file(1) and uname(1) disagree on separators (x86-64 vs x86_64),
+	# so normalise both to hyphens before comparing.
+	_host_arch=$(uname -m | tr '_' '-')
+	_rootfs_arch=$(file -L "$ROOTFS/bin/sh" 2>/dev/null | tr '_' '-')
+	if ! printf '%s' "$_rootfs_arch" | grep -qi "$_host_arch"; then
+		warn "rootfs /bin/sh does not look like $_host_arch; binaries may not execute"
+	fi
+fi
+
+# --- set up ----------------------------------------------------------------
+
+trap cleanup EXIT HUP INT TERM
+
+setup_api_filesystems "$ROOTFS"
+
+setup_resolv "$ROOTFS"
+
+for spec in $EXTRA_BINDS; do
+	case $spec in
+		*:*) src=${spec%%:*}; dst=${spec#*:} ;;
+		*)   src=$spec;       dst=$spec ;;
+	esac
+	[ -e "$src" ] || die "bind source does not exist: $src"
+	do_mount bind "$src" "$ROOTFS/${dst#/}"
+done
+
+# --- build the command -----------------------------------------------------
+
+[ $# -gt 0 ] || set -- /bin/sh -l
+
+if [ -n "$CLEAN_ENV" ]; then
+	# env -i for reproducible runs: nothing from the host leaks in, so a
+	# stray CFLAGS or LD_LIBRARY_PATH cannot skew a benchmark.
+	set -- /usr/bin/env -i \
+		HOME=/root \
+		TERM="${TERM:-linux}" \
+		PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+		$ENV_VARS \
+		"$@"
+elif [ -n "$ENV_VARS" ]; then
+	set -- /usr/bin/env $ENV_VARS "$@"
+fi
+
+info "entering $ROOTFS"
+
+# Setting time to rootfs time + 1h
+date -s "@$(( $(stat -c %Y "$ROOTFS") + 3600 ))"
+chroot "$ROOTFS" "$@"
