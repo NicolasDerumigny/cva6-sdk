@@ -5,6 +5,7 @@ ROOT     := $(patsubst %/,%, $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 RISCV    := $(PWD)/install$(XLEN)
 DEST     := $(abspath $(RISCV))
 PATH     := $(DEST)/bin:$(PATH)
+JOBS     := $(shell nproc)
 
 # FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_dualcore`,
 # `zcu104_dualcore_nothernet` are supported
@@ -114,19 +115,19 @@ $(RISCV)/u-boot.bin: u-boot/u-boot.bin
 	cp $< $@
 
 $(MKIMAGE) u-boot/u-boot.bin: $(CC)
-	make -C u-boot openhwgroup_cv$(XLEN)a6_$(BOARD)_defconfig
-	make -C u-boot CROSS_COMPILE=$(TOOLCHAIN_PREFIX)
+	make -C u-boot -j$(JOBS) openhwgroup_cv$(XLEN)a6_$(BOARD)_defconfig
+	make -C u-boot -j$(JOBS) CROSS_COMPILE=$(TOOLCHAIN_PREFIX)
 
 # OpenSBI with u-boot as payload
 $(RISCV)/fw_payload.bin: $(RISCV)/u-boot.bin
-	make -C opensbi FW_PAYLOAD_PATH=$< ARIANE_DUALCORE=$(ARIANE_DUALCORE) $(sbi-mk)
+	make -C opensbi -j$(JOBS) FW_PAYLOAD_PATH=$< ARIANE_DUALCORE=$(ARIANE_DUALCORE) $(sbi-mk)
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.elf $(RISCV)/fw_payload.elf
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/fw_payload.bin
 
 # OpenSBI for Spike with Linux as payload
 $(RISCV)/spike_fw_payload.elf: PLATFORM=generic
 $(RISCV)/spike_fw_payload.elf: $(RISCV)/Image.gz
-	make -C opensbi FW_PAYLOAD_PATH=$< $(sbi-mk)
+	make -C opensbi -j$(JOBS) FW_PAYLOAD_PATH=$< $(sbi-mk)
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.elf $(RISCV)/spike_fw_payload.elf
 	cp opensbi/build/platform/$(PLATFORM)/firmware/fw_payload.bin $(RISCV)/spike_fw_payload.bin
 
