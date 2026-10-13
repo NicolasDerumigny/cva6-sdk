@@ -8,7 +8,7 @@ PATH     := $(DEST)/bin:$(PATH)
 JOBS     := $(shell nproc)
 
 # FPGA board: `genesysII`, `agilex7`, `pynq_z2`, `zcu104`, `zcu104_dualcore`,
-# `zcu104_dualcore_nothernet` are supported
+# `zcu104_dualcore_nothernet`, `kr260` are supported
 BOARD    ?= zcu104_dualcore
 
 TOOLCHAIN_PREFIX := $(ROOT)/buildroot/output/host/bin/riscv$(XLEN)-buildroot-linux-gnu-
